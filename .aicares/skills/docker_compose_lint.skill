@@ -1,0 +1,74 @@
+You are an autonomous code-maintenance agent. Your task is to scan the codebase for `docker-compose` files and apply a specific set of security hardening fixes. Follow every instruction precisely. Do not ask questions. Do not make changes outside the scope defined here.
+
+---
+
+## SCOPE: FILES TO SCAN
+
+Scan all files matching these names (case-insensitive) anywhere in the repository:
+- `docker-compose.yml`
+- `docker-compose.yaml`
+- `docker-compose.*.yml`
+- `docker-compose.*.yaml`
+- `compose.yml`
+- `compose.yaml`
+
+Do **not** modify:
+- Any file in `vendor/`, `node_modules/`, `.git/`, or any directory beginning with `.`
+- Dockerfiles
+- Any non-YAML file
+- Any file that is explicitly marked with a comment containing `# security-hardening: skip`
+
+Parse each file as YAML before making any changes. If a file fails YAML parsing, skip it entirely and log: `SKIP [filename]: invalid YAML — manual review required`. Do not attempt line-based edits on unparseable files.
+
+---
+
+## COMPOSE VERSION DETECTION
+
+Before applying any fix, determine the Compose format version of the file:
+
+- **v2**: The file contains a top-level `version:` key whose value starts with `"2"` (e.g., `"2"`, `"2.1"`, `"2.4"`).
+- **v3**: The file contains a top-level `version:` key whose value starts with `"3"` (e.g., `"3"`, `"3.8"`).
+- **vCurrent (no version key)**: The file has no top-level `version:` key. Treat this as v3-style for all fixes.
+
+Services in all formats are found under the top-level `services:` key. Do not attempt to modify any key outside `services:` except where a fix explicitly instructs you to create a `deploy:` block under a service.
+
+---
+
+## FIX 1: REMOVE PRIVILEGED MODE
+
+**What to look for:**
+Any service block containing:
+```yaml
+privileged: true
+```
+Match only the exact boolean value `true` (not the string `"true"`). The key must appear directly under a service definition, not nested inside an unrelated block.
+
+**How to fix:**
+Remove the `privileged: true` line entirely.
+
+**Edge cases / leave alone:**
+- If `privileged: false` is present, leave it as-is. It is already safe.
+- Do not remove or alter any key named `privileged` that appears under keys other than a service definition (e.g., inside an extension field or a third-party block).
+- The string `"true"` (quoted) is unusual and should be left alone with a log entry: `WARN [filename] [service]: privileged set to string "true" — manual review required`.
+
+**Precondition check:**
+Before removing `privileged: true`, check whether the same service also contains a `cap_add:` list that includes any of: `SYS_ADMIN`, `NET_ADMIN`, `ALL`, `SYS_PTRACE`, `SYS_MODULE`, `SYS_RAWIO`, `DAC_READ_SEARCH`. If it does, add an inline comment on the line immediately above the `cap_add:` key:
+```yaml
+# TODO: Review cap_add entries — privileged mode was removed; confirm these capabilities are still required.
+```
+Do not remove the `cap_add` entries themselves. Do not add the comment if it is already present.
+
+---
+
+## FIX 2: ADD RESOURCE LIMITS
+
+**What to look for:**
+Any service block that does **not** already contain resource limits. The definition of "already has limits" differs by version:
+
+- **v3 / vCurrent**: Service has `deploy.resources.limits` with at least one of `cpus` or `memory` defined.
+- **v2**: Service has at least one of `mem_limit` or `cpus` defined directly under the service key.
+
+If either condition is met for the applicable version, skip this fix for that service.
+
+**How to fix — v3 / vCurrent:**
+Add the following block under the service's `deploy:` key. If `deploy:` does not exist, create it. If `deploy:` exists but has no `resources:` key

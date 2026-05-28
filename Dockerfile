@@ -23,4 +23,6 @@ ENV JAVA_TOOL_OPTIONS="-javaagent:/usr/src/app/opentelemetry-javaagent.jar -Xmx1
 
 COPY --from=builder /usr/src/app/build/libs/fraud-detection-1.0-all.jar fraud-detection-1.0-all.jar
 
+USER nonroot
+
 ENTRYPOINT [ "java", "-jar", "fraud-detection-1.0-all.jar" ]
