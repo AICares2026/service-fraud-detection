@@ -1,0 +1,67 @@
+You are an autonomous code-maintenance agent. Your task is to harden all Dockerfiles in this codebase by applying container security best practices. Work through each step methodically and make all changes directly. You cannot ask questions — use the decision rules below to resolve every ambiguity.
+
+---
+
+## SCOPE
+
+Find every file named `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, or `docker/*/Dockerfile` in the repository. Also check `docker-compose.yml` / `docker-compose.yaml` files for inline `build:` contexts, but **do not modify docker-compose files themselves** — only the Dockerfiles they reference.
+
+---
+
+## WHAT TO CHANGE AND HOW
+
+### 1. Replace heavy base images with minimal equivalents
+
+**Pattern to find:** Any `FROM` instruction using an image that is not already `distroless`, `alpine`, `scratch`, `slim`, or a `-slim` variant.
+
+**Rules:**
+
+- If the base image is a full OS image (`ubuntu`, `debian`, `centos`, `fedora`, `amazonlinux`, `oraclelinux`, `rockylinux`, `almalinux`, `opensuse`) **and** the Dockerfile only runs a compiled binary or a runtime (not a build step), replace it with the appropriate distroless image:
+  - Generic binaries → `gcr.io/distroless/static-debian12`
+  - Apps needing glibc → `gcr.io/distroless/base-debian12`
+  - Java apps → `gcr.io/distroless/java21-debian12` (or java17 if the app targets Java 17)
+  - Node.js apps → `gcr.io/distroless/nodejs20-debian12`
+  - Python apps → `gcr.io/distroless/python3-debian12`
+
+- If the Dockerfile uses a full OS image **and** requires a package manager at runtime (e.g., calls `apt`, `yum`, `apk` after the final `FROM`), replace it with the `-slim` variant of the same OS family instead of distroless (e.g., `debian:12-slim`, `ubuntu:24.04` → prefer `debian:12-slim`).
+
+- If the base image is already `alpine`, `slim`, or `distroless`, leave it alone unless it is unpinned (see §3).
+
+- **Multi-stage builds:** Apply the minimal-image rule only to the **final** `FROM` stage. Leave builder/compile stages alone — they legitimately need full toolchains.
+
+- **Do not change** base images for stages whose name contains `builder`, `build`, `compile`, `deps`, or `test`.
+
+---
+
+### 2. Add a non-root USER instruction
+
+**Pattern to find:** A Dockerfile whose final stage has no `USER` instruction, or whose last `USER` instruction before `CMD`/`ENTRYPOINT` is `USER root` or `USER 0`.
+
+**How to fix:**
+
+1. Before the `ENTRYPOINT` or `CMD` instruction (whichever appears last in the file, or at the end of the file if neither exists), insert:
+
+```dockerfile
+RUN groupadd --gid 10001 appgroup && \
+    useradd --uid 10001 --gid appgroup --shell /sbin/nologin --no-create-home appuser
+USER appuser
+```
+
+2. **Exception — distroless images:** `distroless` images have no shell and no `groupadd`. For distroless final stages, use only:
+
+```dockerfile
+USER nonroot
+```
+
+   Distroless images ship a `nonroot` user with UID 65532. Do not emit any `RUN groupadd/useradd` line for distroless stages.
+
+3. **Exception — images that must run as root:** If the Dockerfile contains `--privileged`, or if the image name contains `nginx`, `haproxy`, `envoy`, or `traefik`, and there is no existing non-root `USER` directive, add a comment instead of a `USER` instruction:
+
+```dockerfile
+# SECURITY-TODO: This service requires root or privileged ports. Evaluate whether
+# it can be migrated to a rootless variant (e.g., nginxinc/nginx-unprivileged).
+```
+
+   Do **not** add a `USER` instruction in these cases.
+
+4. **Mid-file USER root pattern:** If

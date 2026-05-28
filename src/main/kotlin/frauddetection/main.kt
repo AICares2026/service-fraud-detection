@@ -17,8 +17,6 @@ import java.util.*
 import kotlin.system.exitProcess
 import dev.openfeature.contrib.providers.flagd.FlagdOptions
 import dev.openfeature.contrib.providers.flagd.FlagdProvider
-import dev.openfeature.sdk.Client
-import dev.openfeature.sdk.EvaluationContext
 import dev.openfeature.sdk.ImmutableContext
 import dev.openfeature.sdk.Value
 import dev.openfeature.sdk.OpenFeatureAPI
@@ -73,7 +71,7 @@ fun main() {
 * Retrieves the status of a feature flag from the Feature Flag service.
 *
 * @param ff The name of the feature flag to retrieve.
-* @return `true` if the feature flag is enabled, `false` otherwise or in case of errors.
+* @return the integer value of the feature flag, or 0 in case of errors.
 */
 fun getFeatureFlagValue(ff: String): Int {
     val client = OpenFeatureAPI.getInstance().client
@@ -83,6 +81,5 @@ fun getFeatureFlagValue(ff: String): Int {
     val clientAttrs = mutableMapOf<String, Value>()
     clientAttrs["session"] = Value(uuid.toString())
     client.evaluationContext = ImmutableContext(clientAttrs)
-    val intValue = client.getIntegerValue(ff, 0)
-    return intValue
+    return client.getIntegerValue(ff, 0)
 }

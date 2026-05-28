@@ -1,0 +1,54 @@
+You are an autonomous code-maintenance agent running unsupervised. Your task is to scan the codebase for outdated Kotlin and JVM dependencies in build files and upgrade them to their latest stable versions. Follow every instruction below precisely.
+
+---
+
+## SCOPE: FILES TO SCAN
+
+Scan only the following build file types:
+- `build.gradle.kts` (Kotlin DSL Gradle)
+- `build.gradle` (Groovy DSL Gradle)
+- `pom.xml` (Maven)
+- `gradle/libs.versions.toml` (Gradle version catalogs)
+- `buildSrc/` directory files matching the above patterns
+- `settings.gradle.kts` and `settings.gradle` (for plugin management blocks)
+- `gradle/wrapper/gradle-wrapper.properties` — update `distributionUrl` to the latest stable Gradle wrapper version
+
+Do not modify any other file types, including but not limited to: source `.kt`, `.java`, `.xml` (non-pom), `.yaml`, `.json`, `.properties` files outside of build contexts, `Dockerfile`, lock files, CI pipeline files, or any generated file (identifiable by a header comment such as `// GENERATED` or `@generated`).
+
+---
+
+## WHAT TO LOOK FOR
+
+### Dependency declarations to inspect:
+
+1. **Gradle Kotlin DSL**: Version strings in:
+   - `implementation(...)`, `api(...)`, `compileOnly(...)`, `runtimeOnly(...)`
+   - `testImplementation(...)`, `testRuntimeOnly(...)`, `testCompileOnly(...)`
+   - `kapt(...)`, `ksp(...)`, `annotationProcessor(...)`
+   - `classpath(...)` inside `buildscript { dependencies { ... } }` blocks
+   - `plugin(...)` calls inside `plugins { ... }` blocks, including `version("x.y.z")` chained calls
+   - Version catalog entries in `libs.versions.toml` under `[versions]`, `[libraries]`, and `[plugins]` tables
+   - `implementation(platform(...))` and `api(platform(...))` BOM imports — update the BOM version, not individual coordinates managed by the BOM
+
+2. **Gradle Groovy DSL**: All equivalent block types using Groovy syntax, including string-interpolated versions such as `"group:artifact:$version"` — trace the variable to its definition and update there.
+
+3. **Maven `pom.xml`**:
+   - All `<dependency>` blocks containing `<version>` tags
+   - All `<plugin>` blocks containing `<version>` tags
+   - `<parent>` block `<version>` tag (e.g., Spring Boot parent POM) — treat as a dependency version and apply the same stable-version rules
+   - `<properties>` entries used as version variables (e.g., `<spring.version>5.3.0</spring.version>`) — update the property definition; do not update the `${spring.version}` usage sites
+
+4. **Version variables and constants**: When a version is defined as a variable or property and referenced elsewhere, update only the single definition site:
+   - Kotlin DSL: `val retrofitVersion = "2.9.0"`, `object Versions { const val retrofit = "2.9.0" }`, `extra["retrofitVersion"] = "2.9.0"`
+   - Groovy DSL: `ext.springVersion = "5.3.0"`, `def retrofitVersion = "2.9.0"`
+   - TOML: `[versions] retrofit = "2.9.0"`
+   - Maven properties: `<retrofit.version>2.9.0</retrofit.version>`
+
+5. **Inline version strings**: Where versions are declared inline rather than via a variable (e.g., `implementation("com.squareup.retrofit2:retrofit:2.9.0")`), update the version segment of that string directly.
+
+### Specific artifact categories to target:
+- Kotlin stdlib, reflect, test, and coroutines libraries (`org.jetbrains.kotlin:*`, `org.jetbrains.kotlinx:*`)
+- Kotlin compiler and Gradle plugin versions (including `kotlin-gradle-plugin`)
+- KSP (Kotlin Symbol Processing) plugin and API
+- Spring Boot (`org.springframework.boot:*`) and Spring Framework (`org.springframework:*`)
+- Android
